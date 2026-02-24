@@ -1,6 +1,8 @@
 .include "nes.inc"
 .include "macros.asm"
+.include "misc.asm"
 .include "gfx.asm"
+.include "game.asm"
 
 .segment "HEADER"
 .byte "NES", $1A   ; Magic number
@@ -28,7 +30,11 @@ joy_down: .res 1
 joy_up: .res 1
 
 map_offset: .res 2 ; for loading tilemap to vram
+map_currbuff: .res 1 ; which buffer is drawn right now - 0 = 1st, !0 = 2nd
+map_prevptr: .res 2 ; for game calculations
 map_currptr: .res 2 ; absolute adress in BSS
+map_nextptr: .res 2 ; for game calculations
+map_otherbuffptr: .res 2 ; for game calculations
 map_vramptr: .res 2
 
 .segment "BSS"
@@ -36,7 +42,12 @@ MAP_WIDTH = 32
 MAP_HEIGHT = 32
 MAP_LENGTH = MAP_WIDTH*MAP_HEIGHT
 ; .assert VRAM_TILE_LAST-VRAM_TILE_FIRST = MAP_LENGTH-1, error, "Map size doesn't match vram addresses"
-map: .res MAP_LENGTH
+
+map_padding1: .res MAP_WIDTH ; provide empty row for neighbour calculations
+map: .res MAP_LENGTH ; first map buffer
+map_padding2: .res MAP_WIDTH
+map1: .res MAP_LENGTH ; second map buffer
+map_padding3: .res MAP_WIDTH ; provide empty row for neighbour calculations
 
 .segment "STARTUP" ; unused
 
@@ -77,13 +88,13 @@ lda #>ready
 sta state+1
 jmp WAIT
 ready:
-; go directly to nmi handler on next frame
+; go directly to nmi handler on next nmi
 lda #<NMIHandler
 sta state
 lda #>NMIHandler
 sta state+1
 
-lda #$00 ; disable nmi for initial load
+lda #$00 ; disable nmi for initial tile load
 sta PPU_CTRL1
 
 ; INIT GFX
@@ -102,6 +113,12 @@ sta PPU_CTRL2
 
 ; 16 bit increment frame
 Add168 frame, 1
+; swap map buffers every 32 frames
+lda frame
+and #$1f
+bne noswap
+  jsr SwapMapBuffers
+noswap:
 
 jsr LoadNextTileRow
 
@@ -139,6 +156,7 @@ eor joy
 and joy_old ; active before - up
 sta joy_up
 
+jsr TickRow
 
 .endproc
 WAIT: jmp WAIT

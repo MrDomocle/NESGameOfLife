@@ -9,6 +9,17 @@ adc #$00
 sta addr_lo+1
 .endmacro
 
+; 16 bit (ptr) subtract 8 bit (constant)
+.macro Sub168 addr_lo, decrement
+clc
+lda addr_lo
+sbc #decrement
+sta addr_lo
+lda addr_lo+1
+sbc #$00
+sta addr_lo+1
+.endmacro
+
 ; 16bit + 16bit, both in memory (little endian)
 .macro Add1616 addr1_lo, addr2_lo
 clc
@@ -18,6 +29,12 @@ sta addr1_lo
 lda addr1_lo+1
 adc addr2_lo+1
 sta addr1_lo+1
+.endmacro
+
+.macro ClampY limit
+  tya
+  and #limit
+  tay
 .endmacro
 
 ; reset ppu transfer flags and load high and low bytes of wanted vram address into vram addr2. pass 16 bit address

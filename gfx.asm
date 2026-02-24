@@ -12,10 +12,9 @@ COL_ORANGE = $27
 Palette: .byte COL_BLACK, COL_WHITE, COL_ORANGE, COL_WHITE, COL_WHITE, COL_WHITE, COL_WHITE, COL_WHITE, COL_WHITE, COL_WHITE, $00, $00, $00, $00, $00, COL_WHITE
 
 .proc ZeroTilemap
-  ; prepare bss offset
-  lda #<map
+  lda #<map_padding1
   sta map_currptr
-  lda #>map
+  lda #>map_padding1
   sta map_currptr+1
 
   ; load all rows
@@ -30,7 +29,7 @@ Palette: .byte COL_BLACK, COL_WHITE, COL_ORANGE, COL_WHITE, COL_WHITE, COL_WHITE
     bne loop
     ; if reached end of row
     inx
-    cpx #MAP_HEIGHT
+    cpx #MAP_HEIGHT*2+3*MAP_WIDTH ; clear both buffers and padding
     beq break
     Add168 map_currptr, MAP_WIDTH
     ldy #$00
@@ -58,11 +57,7 @@ Palette: .byte COL_BLACK, COL_WHITE, COL_ORANGE, COL_WHITE, COL_WHITE, COL_WHITE
 .endproc
 
 .proc LoadTilesFull
-  ; prepare bss offset
-  lda #<map
-  sta map_currptr
-  lda #>map
-  sta map_currptr+1
+  jsr ResetMapPointer_Draw
 
   ; load all rows
   VRAMTransferInit VRAM_TILE_FIRST
@@ -90,10 +85,7 @@ Palette: .byte COL_BLACK, COL_WHITE, COL_ORANGE, COL_WHITE, COL_WHITE, COL_WHITE
 ; On game frames, update 1 row per frame, increment on each frame.
 .proc LoadNextTileRow
   ; reset map_currptr and map_offset
-  lda #<map
-  sta map_currptr
-  lda #>map
-  sta map_currptr+1
+  jsr ResetMapPointer_Draw
 
   lda #$00
   sta map_offset
