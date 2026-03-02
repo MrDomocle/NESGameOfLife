@@ -51,6 +51,17 @@
 .endproc
 
 .proc SwapMapBuffers
+  lda game_state
+  beq buffer_done ; don't swap while paused - otherwise flickers last and prev
+  eor #$01 ; see if pause was queued
+  beq pause
+  jmp nopause
+  pause:
+    lda #$00
+    sta game_state
+    rts
+  nopause:
+  
   lda map_currbuff
   bne second_buffer
 

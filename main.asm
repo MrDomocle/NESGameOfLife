@@ -1,4 +1,5 @@
 .include "nes.inc"
+.include "controller.inc"
 .include "macros.asm"
 .include "misc.asm"
 .include "gfx.asm"
@@ -20,8 +21,9 @@
 .incbin "gol.chr"
 
 .segment "ZEROPAGE"
-state: .res 2 ; point to vblank skips for first 2 frames
+nmi_ptr: .res 2 ; point to vblank skips for first 2 frames
 frame: .res 2
+game_state: .res 1 ; 0 paused, 1 pause queued (on next buffer swap), 2 running
 
 ; A B SELECT START U D L R
 joy: .res 1 
@@ -58,41 +60,44 @@ sei
 cld
 
 lda #<vblank1
-sta state ; for skipping first 2 vblanks
+sta nmi_ptr ; for skipping first 2 vblanks
 lda #>vblank1
-sta state+1
+sta nmi_ptr+1
 
 lda #$00
 sta frame
 sta frame+1
 sta joy_old
 
+lda #$02
+sta game_state
+
 ; enable interrupts to time first 2 vblanks
 lda #$80
 sta PPU_CTRL1
 
-NMI:
-jmp (state)
+NMIVector:
+jmp (nmi_ptr)
 
 ; skip first 2 frames
 vblank1:
 lda #<vblank2
-sta state
+sta nmi_ptr
 lda #>vblank2
-sta state+1
+sta nmi_ptr+1
 jmp WAIT
 vblank2:
 lda #<ready
-sta state
+sta nmi_ptr
 lda #>ready
-sta state+1
+sta nmi_ptr+1
 jmp WAIT
 ready:
 ; go directly to nmi handler on next nmi
 lda #<NMIHandler
-sta state
+sta nmi_ptr
 lda #>NMIHandler
-sta state+1
+sta nmi_ptr+1
 
 lda #$00 ; disable nmi for initial tile load
 sta PPU_CTRL1
@@ -109,61 +114,31 @@ lda #$08 ; 08 to enable bg rendering
 sta PPU_CTRL2
 
 ; actual NMI handler
-.proc NMIHandler
-
-; 16 bit increment frame
-Add168 frame, 1
-; swap map buffers every 32 frames
-lda frame
-and #$1f
-bne noswap
-  jsr SwapMapBuffers
-noswap:
-
-jsr LoadNextTileRow
-
-; read controller
-lda #$01
-sta APU_PAD1
-lda #$00
-sta APU_PAD1
-
-; back up joy
-lda joy
-sta joy_old
-
-ldx #$08
-lda #$00
-clc
-loop:
-  lda APU_PAD1
-  lsr
-  rol joy
-  dex
-bne loop
-
-; find up & down buttons
-lda joy_old
-eor joy ; changed inputs
-
-and joy ; active now - down
-sta joy_down
-
-; 1 cycle faster to do this again on zp than push and pull value from stack
-lda joy_old
-eor joy
-
-and joy_old ; active before - up
-sta joy_up
-
-jsr TickRow
-
+.proc NMIHandler  
+  ; 16 bit increment frame
+  Add168 frame, 1
+  ; swap map buffers every 32 frames
+  lda frame
+  and #$1f
+  bne noswap
+    jsr SwapMapBuffers
+  noswap:
+  
+  jsr InputHandler
+  
+  jsr LoadNextTileRow
+  
+  lda game_state
+  beq paused
+    jsr TickRow
+  paused:
+  
 .endproc
 WAIT: jmp WAIT
 
 IRQ:
 
 .segment "VECTORS"
-.word NMI
+.word NMIVector
 .word RESET
 .word IRQ

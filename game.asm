@@ -1,6 +1,10 @@
 .segment "CODE"
 
-birth_table: .byte $00, $00, $00, $0f, $00, $00, $00, $00, $00, $00
+; walled cities
+; birth_table: .byte $00, $00, $00, $00, $0f, $0f, $0f, $0f, $0f, $0f
+; survive_table: .byte $00, $00, $0f, $0f, $0f, $0f, $00, $00, $00, $00
+; gol
+birth_table: .byte $00, $00, $00, $0f, $00, $00, $00, $00, $00
 survive_table: .byte $00, $00, $0f, $0f, $00, $00, $00, $00, $00, $00
 
 .proc TickRow
@@ -126,5 +130,74 @@ curr_neighbours: .res 1
 
 AddNeighbour:
   inc curr_neighbours
+  rts
+.endproc
+
+
+; map     map1
+; draw    calc
+;    PAUSE
+; calc    draw
+;   UNPAUSE
+; draw    calc
+
+.proc InputHandler
+  ; read controller
+  lda #$01
+  sta APU_PAD1
+  lda #$00
+  sta APU_PAD1
+  lda joy
+  sta joy_old
+
+  ; read controller
+  lda #$01
+  sta APU_PAD1
+  lda #$00
+  sta APU_PAD1
+  
+  ; back up joy
+  lda joy
+  sta joy_old
+  
+  ldx #$08
+  lda #$00
+  clc
+  loop:
+    lda APU_PAD1
+    lsr
+    rol joy
+    dex
+  bne loop
+  
+  ; find up & down buttons
+  lda joy_old
+  eor joy ; changed inputs
+  
+  and joy ; active now - down
+  sta joy_down
+  
+  ; 1 cycle faster to do this again on zp than push and pull value from stack
+  lda joy_old
+  eor joy
+  
+  and joy_old ; active before - up
+  sta joy_up
+  
+  ; do stuff with inputs
+  lda joy_down
+  ; pause
+  and #JOY_START
+  beq start_end
+    lda game_state
+    beq paused
+      lda #$01
+      sta game_state
+      jmp start_end
+    paused:
+      lda #$02
+      sta game_state
+  start_end:
+
   rts
 .endproc
