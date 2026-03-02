@@ -5,13 +5,21 @@ VRAM_PAL2 = $3F10
 VRAM_TILE_FIRST = $2000
 VRAM_TILE_LAST = $21ff
 
+; oam sprite byte offsets
+OAM_Y = $0
+OAM_TILE = $1
+OAM_ATTR = $2
+OAM_X = $3
+
 COL_WHITE = $30
 COL_BLACK = $0F
 COL_ORANGE = $27
 
-Palette: .byte COL_BLACK, COL_WHITE, COL_ORANGE, COL_WHITE, COL_WHITE, COL_WHITE, COL_WHITE, COL_WHITE, COL_WHITE, COL_WHITE, $00, $00, $00, $00, $00, COL_WHITE
+Palette:
+.byte COL_BLACK, COL_WHITE, COL_ORANGE, COL_WHITE, COL_WHITE, COL_WHITE, COL_WHITE, COL_WHITE, COL_WHITE, COL_WHITE, $00, $00, $00, $00, $00, COL_WHITE
+.byte COL_BLACK, COL_WHITE, COL_ORANGE, COL_WHITE, COL_WHITE, COL_WHITE, COL_WHITE, COL_WHITE, COL_WHITE, COL_WHITE, $00, $00, $00, $00, $00, COL_WHITE
 
-.proc ZeroTilemap
+.proc ZeroTilemap ; i think this overshoots
   lda #<map_padding1
   sta map_currptr
   lda #>map_padding1
@@ -40,6 +48,17 @@ Palette: .byte COL_BLACK, COL_WHITE, COL_ORANGE, COL_WHITE, COL_WHITE, COL_WHITE
   rts
 .endproc
 
+.proc ZeroOAM
+  lda #$00
+  sta PPU_SPR_ADDR
+  ldx #00
+  loop:
+    sta PPU_SPR_IO
+    inx
+    bne loop
+  rts
+.endproc
+
 .proc LoadPalette
   ; init transfer to pal 1 vram address
   VRAMTransferInit VRAM_PAL1
@@ -49,7 +68,7 @@ Palette: .byte COL_BLACK, COL_WHITE, COL_ORANGE, COL_WHITE, COL_WHITE, COL_WHITE
     lda Palette,x
     sta PPU_VRAM_IO
     inx
-    cpx #$10
+    cpx #$20
   bne loop
 
   UndoScroll
@@ -120,5 +139,31 @@ Palette: .byte COL_BLACK, COL_WHITE, COL_ORANGE, COL_WHITE, COL_WHITE, COL_WHITE
     cpy #MAP_WIDTH
   bne loop
   UndoScroll
+  rts
+.endproc
+
+.proc LoadOAM
+  ; set address (do i really need to? it should be 0 at nmi anyway)
+  lda #$00
+  sta PPU_SPR_ADDR
+
+  lda cursor_y
+  sta PPU_SPR_IO
+  lda #%00010000 ; tile
+  sta PPU_SPR_IO
+  lda cursor_attr
+  sta PPU_SPR_IO
+  lda cursor_x
+  sta PPU_SPR_IO
+
+  rts
+.endproc
+
+.proc InitCursor
+  lda #(16*8) ; ~middle of screen
+  sta cursor_x
+  sta cursor_y
+  lda #%00000000
+  sta cursor_attr
   rts
 .endproc

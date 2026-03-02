@@ -19,11 +19,13 @@
 .segment "CHARS"
 ; patterns in nibbles: 1111 - bottom right, bottom left, top left, top right (high to low) match tile address low byte, high byte is 0
 .incbin "gol.chr"
+cursor: .incbin "cursor.chr"
 
 .segment "ZEROPAGE"
 nmi_ptr: .res 2 ; point to vblank skips for first 2 frames
 frame: .res 2
 game_state: .res 1 ; 0 paused, 1 pause queued (on next buffer swap), 2 running
+clear_time: .res 1 ; count up if non-zero, clear map if reaches CLEAR_TIMEOUT
 
 ; A B SELECT START U D L R
 joy: .res 1 
@@ -51,6 +53,13 @@ map_padding2: .res MAP_WIDTH
 map1: .res MAP_LENGTH ; second map buffer
 map_padding3: .res MAP_WIDTH ; provide empty row for neighbour calculations
 
+cursor_x: .res 1
+cursor_y: .res 1
+cursor_attr: .res 1 ; maybe make cursor orange when paused and white when running?
+
+cursor_tile_x: .res 1
+cursor_tile_y: .res 1
+
 .segment "STARTUP" ; unused
 
 .segment "CODE"
@@ -68,6 +77,7 @@ lda #$00
 sta frame
 sta frame+1
 sta joy_old
+sta clear_time
 
 lda #$02
 sta game_state
@@ -106,11 +116,13 @@ sta PPU_CTRL1
 jsr LoadPalette
 jsr ZeroTilemap
 jsr LoadTilesFull
+jsr ZeroOAM
+jsr InitCursor
 
 ; ready to run
 lda #$80 ; enable nmi
 sta PPU_CTRL1
-lda #$08 ; 08 to enable bg rendering
+lda #$18 ; 08 to enable bg rendering + 10 to enable sprites
 sta PPU_CTRL2
 
 ; actual NMI handler
@@ -124,15 +136,16 @@ sta PPU_CTRL2
     jsr SwapMapBuffers
   noswap:
   
+  jsr GetCursorCoords
   jsr InputHandler
-  
   jsr LoadNextTileRow
+  jsr LoadOAM
   
   lda game_state
   beq paused
     jsr TickRow
   paused:
-  
+  rti
 .endproc
 WAIT: jmp WAIT
 

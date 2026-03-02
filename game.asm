@@ -1,11 +1,18 @@
+RULES = $601 ; $c179 for city, $601 for gol
+
+.define CURSOR_SPEED 2
+.define CLEAR_TIMEOUT 180 ; how many frames to hold down select for clearing screen
+
 .segment "CODE"
 
-; walled cities
-; birth_table: .byte $00, $00, $00, $00, $0f, $0f, $0f, $0f, $0f, $0f
-; survive_table: .byte $00, $00, $0f, $0f, $0f, $0f, $00, $00, $00, $00
-; gol
+.if RULES = $c179 ; city
+birth_table: .byte $00, $00, $00, $00, $0f, $0f, $0f, $0f, $0f
+survive_table: .byte $00, $00, $0f, $0f, $0f, $0f, $00, $00, $00
+.endif
+.if RULES = $601 ; gol
 birth_table: .byte $00, $00, $00, $0f, $00, $00, $00, $00, $00
-survive_table: .byte $00, $00, $0f, $0f, $00, $00, $00, $00, $00, $00
+survive_table: .byte $00, $00, $0f, $0f, $00, $00, $00, $00, $00
+.endif
 
 .proc TickRow
 
@@ -23,14 +30,14 @@ curr_neighbours: .res 1
   lda frame
   and #$1f
   ; skip however many rows there are in accumulator - A*MAP_WIDTH bytes
-  tax
-  beq noskip ; don't run loop if result 0 - no offset
-  skipping_loop:
-    Add168 map_offset, MAP_WIDTH
-    dex
-    cpx #$00
-  bne skipping_loop
-  noskip:
+  sta map_offset ; low
+  lda #$00
+  sta map_offset+1 ; high
+  .repeat 5 ; shift whole word 5 times for x32
+    clc
+    rol map_offset
+    rol map_offset+1 ; should absolutely not make carry 1
+  .endrepeat
   
   ;tick
   Add1616 map_currptr, map_offset
@@ -127,29 +134,74 @@ curr_neighbours: .res 1
   bne loop
 
   rts
+.endproc
 
-AddNeighbour:
-  inc curr_neighbours
+.proc ClearMap
+  ; disable NMI & rendering
+  lda #$00
+  sta PPU_CTRL1
+  sta PPU_CTRL2
+
+  ; zero out
+  jsr ZeroTilemap
+  ; fix oam
+  jsr InitCursor
+
+  ; re-enable
+  lda #$80 ; enable nmi
+  sta PPU_CTRL1
+  lda #$18 ; 08 to enable bg rendering + 10 to enable sprites
+  sta PPU_CTRL2
   rts
 .endproc
 
+.proc GetCursorCoords
+  lda cursor_x
+  ; divide by 8 - get tile coordinates
+  lsr
+  lsr
+  lsr
+  sta cursor_tile_x
 
-; map     map1
-; draw    calc
-;    PAUSE
-; calc    draw
-;   UNPAUSE
-; draw    calc
+  lda cursor_y
+  lsr
+  lsr
+  lsr
+  sta cursor_tile_y
+
+  rts
+.endproc
+
+; Put accumulator value at coordinates in cursor_tile_x/y
+.proc ModifyCursorTile
+  pha ; save value to stack
+  jsr ResetMapPointer_Calculate ; make sure pointer is in the right place
+
+  ; skip y rows - y*MAP_WIDTH(i.e. 32) bytes
+  lda cursor_tile_y
+  sta map_offset ; low
+  lda #$00
+  sta map_offset+1 ; high
+  .repeat 5 ; shift whole word 5 times for x32
+    clc
+    rol map_offset
+    rol map_offset+1 ; should absolutely not make carry 1
+  .endrepeat
+
+  Add1616 map_currptr, map_offset
+  Add1616 map_otherbuffptr, map_offset
+
+  ldy cursor_tile_x ; load x coordinate into y register because 6502 is stoopid
+  
+  ; put initial accumulator value into the found cell
+  pla
+  sta (map_currptr),y
+  sta (map_otherbuffptr),y
+
+  rts
+.endproc
 
 .proc InputHandler
-  ; read controller
-  lda #$01
-  sta APU_PAD1
-  lda #$00
-  sta APU_PAD1
-  lda joy
-  sta joy_old
-
   ; read controller
   lda #$01
   sta APU_PAD1
@@ -186,7 +238,15 @@ AddNeighbour:
   
   ; do stuff with inputs
   lda joy_down
-  ; pause
+  
+  ; PAUSING MECHANISM - which map buffer is used for what
+  ; map     map1
+  ; draw    calc
+  ;    PAUSE
+  ; calc    draw   - to always draw latest buffer
+  ;   UNPAUSE
+  ; draw    calc
+
   and #JOY_START
   beq start_end
     lda game_state
@@ -198,6 +258,68 @@ AddNeighbour:
       lda #$02
       sta game_state
   start_end:
+
+  ; edit
+  jsr GetCursorCoords ; update cursor coords
+  lda joy ; keep placing as long as pressed
+  and #JOY_A
+  beq not_place
+    lda #$0f
+    jsr ModifyCursorTile
+    jmp edit_end
+  not_place:
+  lda joy
+  and #JOY_B
+  beq edit_end
+    lda #$00
+    jsr ModifyCursorTile
+  edit_end:
+  
+  ; clear screen timer
+  lda joy
+  and #JOY_SELECT
+  beq no_select
+    inc clear_time
+    lda clear_time
+    cmp #CLEAR_TIMEOUT
+    bne clear_end
+      jsr ClearMap
+      jmp clear_end
+  no_select:
+    lda #$00
+    sta clear_time
+  clear_end:
+
+
+  ; cursor movement
+  lda joy
+  and #JOY_LEFT
+  beq left_end
+  .repeat CURSOR_SPEED
+    dec cursor_x
+  .endrepeat
+  left_end:
+  lda joy
+  and #JOY_RIGHT
+  beq right_end
+  .repeat CURSOR_SPEED
+    inc cursor_x
+  .endrepeat
+  right_end:
+  lda joy
+  and #JOY_UP
+  beq up_end
+  .repeat CURSOR_SPEED
+    dec cursor_y
+  .endrepeat
+  up_end:
+  lda joy
+  and #JOY_DOWN
+  beq down_end
+  .repeat CURSOR_SPEED
+    inc cursor_y
+  .endrepeat
+  down_end:
 
   rts
 .endproc
