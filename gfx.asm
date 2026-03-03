@@ -118,14 +118,14 @@ Palette:
   lda frame
   and #$1f
   ; skip however many rows there are in accumulator - A*MAP_WIDTH bytes
-  tax
-  beq noskip ; don't run loop if result 0 - no offset
-  skipping_loop:
-    Add168 map_offset, MAP_WIDTH
-    dex
-    cpx #$00
-  bne skipping_loop
-  noskip:
+  sta map_offset ; low
+  lda #$00
+  sta map_offset+1 ; high
+  .repeat 5 ; shift whole word 5 times for x32
+    clc
+    rol map_offset
+    rol map_offset+1 ; should absolutely not make carry 1
+  .endrepeat
 
   ; load this row
   VRAMTransferInitOffset map_vramptr, map_offset
