@@ -6,25 +6,35 @@ RULES = $601 ; $c179 for city, $601 for gol
 .segment "CODE"
 
 .if RULES = $c179 ; city
-birth_table: .byte $00, $00, $00, $00, $0f, $0f, $0f, $0f, $0f
-survive_table: .byte $00, $00, $0f, $0f, $0f, $0f, $00, $00, $00
+birth_table: .byte $00, $00, $00, $00, $01, $01, $01, $01, $01
+survive_table: .byte $00, $00, $01, $01, $01, $01, $00, $00, $00
 .endif
 .if RULES = $601 ; gol
-birth_table: .byte $00, $00, $00, $0f, $00, $00, $00, $00, $00
-survive_table: .byte $00, $00, $0f, $0f, $00, $00, $00, $00, $00
+birth_table: .byte $00, $00, $00, $01, $00, $00, $00, $00, $00
+survive_table: .byte $00, $00, $01, $01, $00, $00, $00, $00, $00
 .endif
 
 .proc TickRow
 
-.segment "ZEROPAGE"
-curr_neighbours: .res 1
+.segment "BSS"
+tmp: .res 1
+; neighbour tiles
+t00: .res 1
+t01: .res 1
+t02: .res 1
+t10: .res 1
+t11: .res 1
+t12: .res 1
+t20: .res 1
+t21: .res 1
+t22: .res 1
+; neighbour counts
+nb: .res 4 ; bottom right, bottom left, top left, top right
+
+alive_in_curr: .res 1
 
 .segment "CODE"
   jsr ResetMapPointer_Calculate
-
-  lda #$00
-  sta map_offset
-  sta map_offset+1
 
   ; last 5 bits of frame = row
   lda frame
@@ -55,83 +65,129 @@ curr_neighbours: .res 1
   Sub168 map_prevptr, MAP_WIDTH-1
 
   ldy #$00
-  loop:
-    ; neighbour count stored in x
-    ldx #$00
-    
-    next00:
+  loop: ; calculate a single 2x2 cell tile
+    lda (map_currbuff),y
+    sta tmp
+    ; count live cells in current tile
+    .repeat 4
+    ror tmp ; shift rightmost bit into carry
+    sta tmp
+    lda #$00
+    adc alive_in_curr ; add to 0 to include carry
+    sta alive_in_curr
+    lda tmp
+    .endrepeat
+
+    ; load neighbour tiles for easier access
+
+    ClampY $1f
+    lda (map_prevptr),y
+    sta t01
+    lda (map_currptr),y
+    sta t11
+    lda (map_nextptr),y
+    sta t21
+
     dey
     ClampY $1f
-    lda (map_prevptr),y ; x is added to pointer's address to access curr and next
-    beq next01
-      inx
-    next01:
+    lda (map_prevptr),y
+    sta t00
+    lda (map_currptr),y
+    sta t10
+    lda (map_nextptr),y
+    sta t20
+
+    iny
     iny
     ClampY $1f
     lda (map_prevptr),y
-    beq next02
-      inx
-    next02:
-    iny
-    ClampY $1f
-    lda (map_prevptr),y
-    beq next10
-      inx
-
-    next10:
-    dey
-    dey
-    ClampY $1f
-    lda (map_currptr),y ; x is added to pointer's address to access curr and next
-    beq next12
-      inx
-    ; skip middle cell
-    next12:
-    iny
-    iny
-    ClampY $1f
+    sta t02
     lda (map_currptr),y
-    beq next20
-      inx
-
-    next20:
-    dey
-    dey
-    ClampY $1f
-    lda (map_nextptr),y ; x is added to pointer's address to access curr and next
-    beq next21
-      inx
-    next21:
-    iny
-    ClampY $1f
+    sta t12
     lda (map_nextptr),y
-    beq next22
-      inx
-    next22:
-    iny
-    ClampY $1f
-    lda (map_nextptr),y
-    beq counted
-      inx
+    sta t22
 
-    counted:
+    ; restore y
     dey
     ClampY $1f
+
+    ; count neighbours per cell
+
+    lda alive_in_curr
+    ; copy as initial neighbour count
+    sta nb+0
+    sta nb+1
+    sta nb+2
+    sta nb+3
     
-    lda (map_currptr),y
+    ; subtract considered cell
+    lda t11
+    and #%0000001
+    beq next_nb1
+      dec nb+0 ; decrease neighbour count if this cell is live (don't count twice)
+    next_nb1:
+    lda t11
+    and #%00000010
+    beq next_nb2
+      dec nb+1
+    next_nb2:
+    lda t11
+    and #%00000100
+    beq next_nb3
+      dec nb+2
+    next_nb3:
+    lda t11
+    and #%00001000
+    beq next_others
+      dec nb+3
+    next_others:
+    
+    ; cells that only neighbour one considered cell
+    Increment1NB t00, %00000001, nb+2
+    Increment1NB t02, %00000010, nb+3
+    Increment1NB t20, %00001000, nb+1
+    Increment1NB t22, %00000100, nb+0
+
+    ; others
+    Increment2NB t01, %00000001, nb+2, nb+3
+    Increment2NB t01, %00000010, nb+2, nb+3
+
+    Increment2NB t10, %00000001, nb+1, nb+2 
+    Increment2NB t10, %00001000, nb+1, nb+2
+    
+    Increment2NB t12, %00000010, nb+0, nb+3
+    Increment2NB t12, %00000100, nb+0, nb+3
+
+    Increment2NB t21, %00000100, nb+0, nb+1
+    Increment2NB t21, %00001000, nb+0, nb+1
+    
+    .repeat 4, I
+    .scope
+    ldx nb+I
+    lda t11
+    and #1<<I
     beq birth
     survive:
       lda survive_table,x
-      jmp done
+      jmp apply
     birth:
       lda birth_table,x
-    
-    done:
+    apply:
+    ; move into corresponding spot
+    .repeat I
+      clc
+      rol
+    .endrepeat
+    ora (map_otherbuffptr),y
     sta (map_otherbuffptr),y
+    .endscope
+    .endrepeat
 
     iny
     cpy #MAP_WIDTH
-  bne loop
+  beq break
+  jmp loop
+  break:
 
   rts
 .endproc

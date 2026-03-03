@@ -37,6 +37,26 @@ sta addr1_lo+1
   tay
 .endmacro
 
+.macro Increment2NB tile, mask, nb1, nb2
+  .scope
+  lda tile
+  and #mask
+  beq no
+    inc nb1
+    inc nb2
+  no:
+  .endscope
+.endmacro
+.macro Increment1NB tile, mask, nb1
+  .scope
+  lda tile
+  and #mask
+  beq no
+    inc nb1
+  no:
+  .endscope
+.endmacro
+
 ; reset ppu transfer flags and load high and low bytes of wanted vram address into vram addr2. pass 16 bit address
 .macro VRAMTransferInit start_addr
   lda PPU_STATUS

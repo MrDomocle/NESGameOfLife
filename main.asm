@@ -122,8 +122,8 @@ jsr InitCursor
 ; ready to run
 lda #$80 ; enable nmi
 sta PPU_CTRL1
-lda #$18 ; 08 to enable bg rendering + 10 to enable sprites
-sta PPU_CTRL2
+; lda #$18 ; 08 to enable bg rendering + 10 to enable sprites
+; sta PPU_CTRL2
 
 ; actual NMI handler
 .proc NMIHandler  
